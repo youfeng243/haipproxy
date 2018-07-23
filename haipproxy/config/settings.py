@@ -57,10 +57,10 @@ LOG_LEVEL = 'DEBUG'
 
 # redis settings.If you use docker-compose, REDIS_HOST = 'redis'
 # if some value is empty, set like this: key = ''
-REDIS_HOST = '127.0.0.1'
+REDIS_HOST = '192.168.1.90'
 REDIS_PORT = 6379
-REDIS_PASSWORD = '123456'
-REDIS_DB = 0
+REDIS_PASSWORD = 'haizhi@)'
+REDIS_DB = 16
 
 # scheduler settings
 TIMER_RECORDER = 'haipproxy:scheduler:task'
