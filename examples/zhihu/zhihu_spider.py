@@ -7,8 +7,8 @@ from multiprocessing import Pool
 from bs4 import BeautifulSoup as BS
 
 from haipproxy.utils import get_redis_conn
-# from examples.zhihu.crawler import Crawler
-import Crawler
+from examples.zhihu.crawler import Crawler
+
 
 per_page = 20
 info_max_process_num = 50
