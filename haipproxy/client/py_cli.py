@@ -144,11 +144,19 @@ class ProxyFetcher(IPFetcherMixin):
                 proxy = handler.get_proxies_by_stragery(self.pool)
         return proxy
 
+    def get_proxies_num(self):
+        return len(self.pool)
+
+    def get_proxies_list(self):
+        return self.pool
+
     def get_proxies(self):
         # the older proxies will not be dropped
         proxies = self.get_available_proxies(self.conn)
         # client_logger.info('{} proxies have been fetched'.format(len(proxies)))
         print('{} proxies have been fetched'.format(len(proxies)))
+
+        self.pool.clear()
         self.pool.extend(proxies)
         return self.pool
 
@@ -167,7 +175,9 @@ class ProxyFetcher(IPFetcherMixin):
 
     def refresh(self):
         if len(self.pool) < self.min_pool_size:
-            self.get_proxies()
+            with lock:
+                if len(self.pool) < self.min_pool_size:
+                    self.get_proxies()
 
     def delete_proxy(self, proxy):
         pipe = self.conn.pipeline()

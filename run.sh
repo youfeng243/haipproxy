@@ -11,11 +11,13 @@ start() {
 
     stop
 
-    nohup python crawler_booter.py --usage crawler common > crawler.log 2>&1 &
-    nohup python scheduler_booter.py --usage crawler common > crawler_scheduler.log 2>&1 &
-    nohup python crawler_booter.py --usage validator init > init_validator.log 2>&1 &
-    nohup python crawler_booter.py --usage validator https > https_validator.log 2>&1&
-    nohup python scheduler_booter.py --usage validator https > validator_scheduler.log 2>&1 &
+    mkdir -p logs
+    nohup python crawler_booter.py --usage crawler common > logs/crawler.log 2>&1 &
+    nohup python scheduler_booter.py --usage crawler common > logs/crawler_scheduler.log 2>&1 &
+    nohup python crawler_booter.py --usage validator init > logs/init_validator.log 2>&1 &
+    nohup python crawler_booter.py --usage validator https > logs/https_validator.log 2>&1&
+    nohup python scheduler_booter.py --usage validator https > logs/validator_scheduler.log 2>&1 &
+    nohup python proxy_server.py > /dev/null 2>&1 &
 
     #nohup python squid_update.py --usage https --interval 3 > squid.log 2>&1 &
     #rm -rf /var/run/squid.pid
@@ -27,20 +29,24 @@ start() {
 
 stop() {
 
-    # 关闭调度器
+
     ps -ef | grep python | grep -v grep | grep crawler_booter | grep crawler | grep common | awk '{print $2}' | xargs kill -9
 
-    # 关闭年报抓取
+
     ps -ef | grep python | grep -v grep | grep scheduler_booter | grep crawler | grep common | awk '{print $2}' | xargs kill -9
 
-    # 关闭详情页
+
     ps -ef | grep python | grep -v grep | grep crawler_booter | grep validator | grep init | awk '{print $2}' | xargs kill -9
 
-	# 关闭列表页抓取
+
 	ps -ef | grep python | grep -v grep | grep crawler_booter | grep validator | grep https | awk '{print $2}' | xargs kill -9
 
-    # 关闭存储模块
+
 	ps -ef | grep python | grep -v grep | grep scheduler_booter | grep validator | grep https | awk '{print $2}' | xargs kill -9
+
+
+    ps -ef | grep python | grep -v grep | grep proxy_server | awk '{print $2}' | xargs kill -9
+
 
     sleep 2
 
@@ -87,6 +93,13 @@ status() {
         return 0
     fi
     echo "python scheduler_booter.py --usage validator https ${pid}"
+
+    pid=`ps -ef | grep python | grep -v grep | grep proxy_server | awk '{print $2}'`
+    if [ -z "${pid}" ]; then
+        echo "python proxy_server.py 不存在..."
+        return 0
+    fi
+    echo "python proxy_server.py ${pid}"
 
     return 1
 }
