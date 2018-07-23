@@ -60,7 +60,7 @@ LOG_LEVEL = 'DEBUG'
 REDIS_HOST = '192.168.1.90'
 REDIS_PORT = 6379
 REDIS_PASSWORD = 'haizhi@)'
-REDIS_DB = 16
+REDIS_DB = 15
 
 # scheduler settings
 TIMER_RECORDER = 'haipproxy:scheduler:task'
