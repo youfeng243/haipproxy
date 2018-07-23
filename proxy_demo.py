@@ -12,4 +12,6 @@ fetcher = ProxyFetcher('zhihu', strategy='greedy', redis_args=args)
 # 获取一个可用代理
 print(fetcher.get_proxy())
 # 获取可用代理列表
+proxies_list = fetcher.get_proxies()
+print(len(proxies_list))
 print(fetcher.get_proxies())  # or print(fetcher.pool)
