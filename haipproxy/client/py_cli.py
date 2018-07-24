@@ -1,10 +1,10 @@
 """
 python client for haipproxy
 """
-import time
 import threading
+import time
 
-from ..utils import get_redis_conn
+from .core import IPFetcherMixin
 from ..config.rules import (
     SCORE_MAPS, TTL_MAPS,
     SPEED_MAPS)
@@ -12,7 +12,7 @@ from ..config.settings import (
     TTL_VALIDATED_RESOURCE, LONGEST_RESPONSE_TIME,
     LOWEST_SCORE, LOWEST_TOTAL_PROXIES,
     DATA_ALL)
-from .core import IPFetcherMixin
+from ..utils import get_redis_conn
 
 __all__ = ['ProxyFetcher']
 
@@ -22,17 +22,20 @@ lock = threading.RLock()
 class Strategy:
     strategy = None
 
+    def __init__(self, log=None):
+        self.log = log
+
     def check(self, strategy):
         return self.strategy == strategy
 
-    def get_proxies_by_stragery(self, pool):
+    def get_proxies_by_stragery(self, pool, pool_set):
         """
         :param pool: pool is a list, which is mutable
         :return:
         """
         raise NotImplementedError
 
-    def process_feedback(self, pool, res, proxy, **kwargs):
+    def process_feedback(self, pool, pool_set, res, proxy, **kwargs):
         """
         :param pool: ProxyFetcher's pool
         :param res: success or failure
@@ -44,48 +47,65 @@ class Strategy:
 
 
 class RobinStrategy(Strategy):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, log=None):
+        super().__init__(log)
+        self.log = log
         self.strategy = 'robin'
 
-    def get_proxies_by_stragery(self, pool):
+    def get_proxies_by_stragery(self, pool, pool_set):
         if not pool:
             return None
 
         proxy = pool.pop(0)
-        pool.append(proxy)
+        if proxy in pool_set:
+            with lock:
+                if proxy in pool_set:
+                    try:
+                        pool_set.remove(proxy)
+                        self.log.info("删除代理成功: proxy = {}".format(proxy))
+                    except:
+                        pass
         return proxy
 
-    def process_feedback(self, pool, res, proxy, **kwargs):
-        if res == 'failure':
-            if pool[-1] == proxy:
+    def process_feedback(self, pool, pool_set, res, proxy, **kwargs):
+        if res == 'success':
+            if proxy not in pool_set:
                 with lock:
-                    if pool[-1] == proxy:
-                        pool.pop()
-        return
+                    if proxy not in pool_set:
+                        pool_set.add(proxy)
+                        pool.append(proxy)
+                        self.log.info("添加代理成功: proxy = {}".format(proxy))
+                        return 1
+        elif res == 'failure':
+            return -1
+        return 0
 
 
 class GreedyStrategy(Strategy):
-    def __init__(self):
+    def __init__(self, log=None):
+        super().__init__(log)
+        self.log = log
         self.strategy = 'greedy'
 
-    def get_proxies_by_stragery(self, pool):
+    def get_proxies_by_stragery(self, pool, pool_set):
         if not pool:
             return None
         return pool[0]
 
-    def process_feedback(self, pool, res, proxy, **kwargs):
+    def process_feedback(self, pool, pool_set, res, proxy, **kwargs):
         if res == 'failure':
             if pool[0] == proxy:
                 with lock:
                     if pool[0] == proxy:
                         pool.pop(0)
-            return
+                        return -1
+            return 0
         expected_time = kwargs.get('expected')
         real_time = kwargs.get('real')
         if expected_time * 1000 < real_time:
             pool.pop(0)
             pool.append(proxy)
+        return 0
 
 
 class ProxyFetcher(IPFetcherMixin):
@@ -93,7 +113,7 @@ class ProxyFetcher(IPFetcherMixin):
                  score_map=SCORE_MAPS, ttl_map=TTL_MAPS, speed_map=SPEED_MAPS,
                  longest_response_time=LONGEST_RESPONSE_TIME, lowest_score=LOWEST_SCORE,
                  ttl_validated_resource=TTL_VALIDATED_RESOURCE, min_pool_size=LOWEST_TOTAL_PROXIES,
-                 all_data=DATA_ALL, redis_args=None):
+                 all_data=DATA_ALL, redis_args=None, log=None):
         """
         :param usage: one of SCORE_MAPS's keys, such as https
         :param strategy: the load balance of proxy ip, the value is
@@ -108,6 +128,8 @@ class ProxyFetcher(IPFetcherMixin):
         :param all_data: all proxies are stored in this set
         :param redis_args: redis connetion args, it's a dict, whose keys include host, port, db and password
         """
+        self.log = log
+
         # if there are multi parent classes, super is only used for the first parent according to MRO
         if usage not in score_map.keys():
             # client_logger.warning('task value is invalid, https task will be used')
@@ -120,10 +142,11 @@ class ProxyFetcher(IPFetcherMixin):
         self.strategy = strategy
         # pool is a FIFO queue
         self.pool = list()
+        self.pool_set = set()
         self.min_pool_size = min_pool_size
         self.fast_response = fast_response
         self.all_data = all_data
-        self.handlers = [RobinStrategy(), GreedyStrategy()]
+        self.handlers = [RobinStrategy(log), GreedyStrategy(log)]
         if isinstance(redis_args, dict):
             self.conn = get_redis_conn(**redis_args)
         else:
@@ -141,7 +164,7 @@ class ProxyFetcher(IPFetcherMixin):
         self.refresh()
         for handler in self.handlers:
             if handler.strategy == self.strategy:
-                proxy = handler.get_proxies_by_stragery(self.pool)
+                proxy = handler.get_proxies_by_stragery(self.pool, self.pool_set)
         return proxy
 
     def get_proxies_num(self):
@@ -158,6 +181,7 @@ class ProxyFetcher(IPFetcherMixin):
 
         self.pool.clear()
         self.pool.extend(proxies)
+        self.pool_set = set(self.pool)
         return self.pool
 
     def proxy_feedback(self, res, proxy, response_time=None):
@@ -169,9 +193,9 @@ class ProxyFetcher(IPFetcherMixin):
         """
         for handler in self.handlers:
             if handler.strategy == self.strategy:
-                handler.process_feedback(self.pool, res,
-                                         proxy, real=response_time,
-                                         expected=self.fast_response)
+                return handler.process_feedback(self.pool, self.pool_set, res,
+                                                proxy, real=response_time,
+                                                expected=self.fast_response)
 
     def refresh(self):
         if len(self.pool) < self.min_pool_size:
@@ -192,4 +216,4 @@ class ProxyFetcher(IPFetcherMixin):
         while True:
             if len(self.pool) < int(2 * self.min_pool_size):
                 self.get_proxies()
-            time.sleep(0.2)
+            time.sleep(1)

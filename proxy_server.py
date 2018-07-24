@@ -4,7 +4,7 @@
 # @Author  : youfeng
 import time
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 
 from haipproxy.client.py_cli import ProxyFetcher
 from haipproxy.config.settings import REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_DB
@@ -16,7 +16,7 @@ log = global_logger.get_logger()
 app = Flask(__name__)
 
 args = dict(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, db=REDIS_DB)
-fetcher = ProxyFetcher('http', strategy='robin', redis_args=args)
+fetcher = ProxyFetcher('http', strategy='robin', redis_args=args, log=log)
 
 
 @app.route('/')
@@ -40,8 +40,18 @@ def proxy_list():
 def get_proxy():
     start_time = time.time()
     proxy = fetcher.get_proxy()
-    fetcher.proxy_feedback("failure", proxy)
+    # fetcher.proxy_feedback("failure", proxy)
     log.info("当前获取代理: {} 耗时: {} s".format(proxy, time.time() - start_time))
+    return proxy
+
+
+@app.route('/proxy/report', methods=['GET'])
+def report_proxy():
+    start_time = time.time()
+    proxy = request.args.get("ip")
+    res = request.args.get("res")
+    fetcher.proxy_feedback(res, proxy)
+    log.info("反馈代理: {} 耗时: {} s".format(proxy, time.time() - start_time))
     return proxy
 
 
